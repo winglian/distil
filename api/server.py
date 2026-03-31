@@ -619,6 +619,153 @@ def gpu_logs(lines: int = 50):
     }
 
 
+# ── Chat with king model ──────────────────────────────────────────────────────
+
+from fastapi import Request
+from fastapi.responses import StreamingResponse
+import asyncio
+
+_chat_lock = threading.Lock()
+_chat_last_used = 0.0
+
+CHAT_SCRIPT = r'''
+import sys, json, torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+model_name = sys.argv[1]
+messages_json = sys.argv[2]
+max_tokens = int(sys.argv[3])
+
+messages = json.loads(messages_json)
+tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(
+    model_name, torch_dtype=torch.bfloat16, device_map="auto"
+)
+model.eval()
+
+text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+inputs = tokenizer(text, return_tensors="pt").to(model.device)
+
+with torch.no_grad():
+    output = model.generate(
+        **inputs, max_new_tokens=max_tokens, do_sample=True,
+        temperature=0.7, top_p=0.9, repetition_penalty=1.1
+    )
+new_tokens = output[0][inputs["input_ids"].shape[1]:]
+response = tokenizer.decode(new_tokens, skip_special_tokens=True)
+print(json.dumps({"response": response}))
+'''
+
+
+@app.post("/api/chat")
+async def chat_with_king(request: Request):
+    """Chat with the king model on the GPU pod."""
+    global _chat_last_used
+    body = await request.json()
+    messages = body.get("messages", [])
+    max_tokens = min(body.get("max_tokens", 512), 1024)
+
+    if not messages:
+        return {"error": "messages required"}
+
+    # Get king model
+    h2h = _safe_json_load(os.path.join(STATE_DIR, "h2h_latest.json"), {})
+    king_uid = h2h.get("king_uid")
+    if king_uid is None:
+        return {"error": "no king model available"}
+
+    # Find king model name from commitments
+    commitments = _safe_json_load(os.path.join(STATE_DIR, "commitments_cache.json"), {})
+    if not commitments:
+        # Try fetching
+        commitments = _get_cached("commitments", _fetch_commitments) or {}
+    king_model = None
+    for uid_str, info in commitments.items():
+        if str(uid_str) == str(king_uid):
+            king_model = info if isinstance(info, str) else info.get("model", info.get("repo"))
+            break
+    if not king_model:
+        return {"error": f"king model for UID {king_uid} not found"}
+
+    # Check if eval is active — don't interfere
+    progress = _safe_json_load(os.path.join(STATE_DIR, "eval_progress.json"), {})
+    if progress.get("active"):
+        return {"error": "evaluation in progress — chat unavailable during eval"}
+
+    # Run on pod via Lium
+    try:
+        from lium import Lium, Config
+        from pathlib import Path
+
+        lium_key = os.environ.get("LIUM_API_KEY")
+        if not lium_key:
+            return {"error": "LIUM_API_KEY not configured"}
+
+        lium = Lium(config=Config(api_key=lium_key, ssh_key_path=str(Path.home() / ".ssh" / "id_ed25519")))
+        pods = lium.ps()
+        pod = None
+        for p in pods:
+            if "distil" in str(getattr(p, "name", "")).lower():
+                pod = p
+                break
+        if not pod:
+            return {"error": "GPU pod not found"}
+
+        messages_escaped = json.dumps(messages).replace("'", "'\\''")
+        cmd = f"python3 -c '{CHAT_SCRIPT}' '{king_model}' '{messages_escaped}' {max_tokens}"
+
+        # Run with timeout
+        result = lium.exec(pod, command=cmd)
+        stdout = result.get("stdout", "") if isinstance(result, dict) else str(result)
+        stderr = result.get("stderr", "") if isinstance(result, dict) else ""
+
+        # Parse response
+        for line in stdout.strip().split("\n"):
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    data = json.loads(line)
+                    _chat_last_used = time.time()
+                    return {
+                        "response": data["response"],
+                        "model": king_model,
+                        "king_uid": king_uid,
+                    }
+                except json.JSONDecodeError:
+                    continue
+
+        return {"error": f"generation failed", "details": stderr[:500] if stderr else stdout[:500]}
+
+    except Exception as e:
+        return {"error": f"chat error: {str(e)[:200]}"}
+
+
+@app.get("/api/chat/status")
+def chat_status():
+    """Check if chat is available."""
+    h2h = _safe_json_load(os.path.join(STATE_DIR, "h2h_latest.json"), {})
+    king_uid = h2h.get("king_uid")
+    progress = _safe_json_load(os.path.join(STATE_DIR, "eval_progress.json"), {})
+    eval_active = progress.get("active", False)
+
+    # Find king model
+    commitments = _safe_json_load(os.path.join(STATE_DIR, "commitments_cache.json"), {})
+    king_model = None
+    if commitments and king_uid is not None:
+        for uid_str, info in commitments.items():
+            if str(uid_str) == str(king_uid):
+                king_model = info if isinstance(info, str) else info.get("model", info.get("repo"))
+                break
+
+    return {
+        "available": not eval_active and king_uid is not None,
+        "king_uid": king_uid,
+        "king_model": king_model,
+        "eval_active": eval_active,
+        "note": "Chat loads the king model on-demand (~15s first message, ~2s after). Unavailable during evaluation." if not eval_active else "Evaluation in progress — chat unavailable.",
+    }
+
+
 # ── Startup: prime caches ────────────────────────────────────────────────────
 
 @app.on_event("startup")
