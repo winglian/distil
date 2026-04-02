@@ -568,6 +568,38 @@ def get_leaderboard():
     )
 
 
+def _is_announcement_claimed(ann: dict) -> bool:
+    """Check if an announcement has already been claimed, using the claims log.
+
+    The claims log prevents re-posting when rsync overwrites announcement.json
+    with an older copy that still has posted=False.
+    """
+    claims_path = os.path.join(STATE_DIR, "announcement_claims.json")
+    claims = _safe_json_load(claims_path, [])
+    ann_ts = ann.get("timestamp", 0)
+    ann_type = ann.get("type", "")
+    # Match by timestamp + type (unique per announcement)
+    for claim in claims:
+        if claim.get("timestamp") == ann_ts and claim.get("type") == ann_type:
+            return True
+    return False
+
+
+def _record_announcement_claim(ann: dict):
+    """Record that an announcement was claimed, in a separate file rsync won't overwrite."""
+    claims_path = os.path.join(STATE_DIR, "announcement_claims.json")
+    claims = _safe_json_load(claims_path, [])
+    claims.append({
+        "timestamp": ann.get("timestamp", 0),
+        "type": ann.get("type", ""),
+        "claimed_at": time.time(),
+    })
+    # Keep only last 50 claims
+    claims = claims[-50:]
+    with open(claims_path, "w") as f:
+        json.dump(claims, f, indent=2)
+
+
 @app.get("/api/announcement", tags=["Evaluation"], summary="Pending announcements",
          description="Returns pending announcements (e.g., new king crowned). Returns `{type: null}` if none pending.")
 def get_announcement():
@@ -576,7 +608,7 @@ def get_announcement():
         try:
             with open(ann_path) as f:
                 ann = json.load(f)
-            if not ann.get("posted", True):
+            if not ann.get("posted", True) and not _is_announcement_claimed(ann):
                 return ann
         except Exception:
             pass
@@ -584,14 +616,18 @@ def get_announcement():
 
 
 @app.post("/api/announcement/claim", tags=["Evaluation"], summary="Claim pending announcement",
-          description="Atomically reads and marks an announcement as posted. Returns the announcement content, or `{type: null}` if none pending.")
+          description="Atomically reads and marks an announcement as posted. Returns the announcement content, or `{type: null}` if none pending. "
+                      "Uses a claims log to prevent re-posting after rsync overwrites.")
 def claim_announcement():
     ann_path = os.path.join(STATE_DIR, "announcement.json")
     if os.path.exists(ann_path):
         try:
             with open(ann_path) as f:
                 ann = json.load(f)
-            if not ann.get("posted", True):
+            if not ann.get("posted", True) and not _is_announcement_claimed(ann):
+                # Record the claim FIRST (idempotent protection)
+                _record_announcement_claim(ann)
+                # Also mark posted in the file (best effort — rsync may overwrite)
                 ann["posted"] = True
                 with open(ann_path, "w") as f:
                     json.dump(ann, f, indent=2)
@@ -609,6 +645,7 @@ def mark_announcement_posted():
         try:
             with open(ann_path) as f:
                 ann = json.load(f)
+            _record_announcement_claim(ann)
             ann["posted"] = True
             with open(ann_path, "w") as f:
                 json.dump(ann, f, indent=2)
