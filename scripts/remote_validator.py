@@ -76,6 +76,12 @@ EVAL_PROMPTS_H2H = 120   # Maintenance H2H: fewer models, need precision
 # Epsilon: challenger must beat king by this relative margin to dethrone
 # e.g., 0.01 = challenger KL must be < king_kl * 0.99 (1% better)
 EPSILON = 0.01
+# Cumulative dethronement: asymmetric penalty (caseus's proposal)
+# Win delta adds to score, loss delta subtracts × LOSS_PENALTY_MULTIPLIER
+# A copy randomly winning/losing drifts negative over time.
+# A genuine improvement accumulates positive drift → crosses CUMULATIVE_DETHRONE_THRESHOLD.
+LOSS_PENALTY_MULTIPLIER = 1.1  # losses hurt 10% more than wins help
+CUMULATIVE_DETHRONE_THRESHOLD = 0.005  # cumulative score needed to dethrone without epsilon
 
 # Smart challenger selection: stale H2H re-test threshold
 STALE_H2H_EPOCHS = 50  # re-test if last H2H was >N epochs ago
@@ -1457,6 +1463,62 @@ else:
                             if challenger_kl < king_new_kl:
                                 print(f"[VALIDATOR] UID {uid}: better than king but within epsilon "
                                       f"(KL={challenger_kl:.6f}, needed <{epsilon_threshold:.6f}, only {pct:.1f}% better)", flush=True)
+
+            # ── Cumulative dethronement tracking (asymmetric penalty) ──
+            # Only active in maintenance phase. Tracks cumulative score per
+            # contender vs king across rounds. Losses penalized × 1.1.
+            cumulative_file = state_path / "cumulative_scores.json"
+            cumulative_scores = {}
+            if cumulative_file.exists():
+                try:
+                    cumulative_scores = json.loads(cumulative_file.read_text())
+                except Exception:
+                    pass
+
+            # Check if in maintenance phase
+            top4_maint = state_path / "top4_leaderboard.json"
+            in_maintenance = False
+            if top4_maint.exists():
+                try:
+                    t4 = json.loads(top4_maint.read_text())
+                    in_maintenance = t4.get("phase") == "maintenance"
+                except Exception:
+                    pass
+
+            if in_maintenance and king_uid is not None and king_h2h_kl is not None:
+                for uid in challengers:
+                    uid_str = str(uid)
+                    if uid_str not in scores or scores[uid_str] <= 0:
+                        continue
+                    challenger_kl = scores[uid_str]
+                    delta = king_new_kl - challenger_kl  # positive = challenger is better
+
+                    # Initialize tracker for this contender vs this king
+                    if uid_str not in cumulative_scores or cumulative_scores[uid_str].get("king_uid") != king_uid:
+                        cumulative_scores[uid_str] = {"king_uid": king_uid, "score": 0.0, "rounds": 0, "model": challengers[uid].get("model", "")}
+
+                    tracker = cumulative_scores[uid_str]
+                    if delta > 0:
+                        # Challenger won this round
+                        tracker["score"] += delta  # wins count × 1.0
+                    else:
+                        # Challenger lost — penalty × 1.1
+                        tracker["score"] += delta * LOSS_PENALTY_MULTIPLIER  # delta is negative, so this subtracts more
+                    tracker["rounds"] += 1
+                    tracker["last_block"] = current_block
+
+                    # Check if cumulative score crosses dethronement threshold
+                    if tracker["score"] >= CUMULATIVE_DETHRONE_THRESHOLD and epsilon_dethroned_by is None:
+                        print(f"[VALIDATOR] 🏆 CUMULATIVE DETHRONE! UID {uid} ({tracker['model']}) "
+                              f"cumulative score {tracker['score']:.6f} >= {CUMULATIVE_DETHRONE_THRESHOLD} "
+                              f"over {tracker['rounds']} rounds", flush=True)
+                        epsilon_dethroned_by = uid
+                    elif delta > 0:
+                        print(f"[VALIDATOR] 📈 Cumulative: UID {uid} beat king by {delta:.6f}, "
+                              f"cumulative={tracker['score']:.6f}/{CUMULATIVE_DETHRONE_THRESHOLD} "
+                              f"({tracker['rounds']} rounds)", flush=True)
+
+                cumulative_file.write_text(json.dumps(cumulative_scores, indent=2))
 
             # ── Determine winner from H2H round results ONLY ──
             # DO NOT use compute_winner_weights on global scores — scores from
