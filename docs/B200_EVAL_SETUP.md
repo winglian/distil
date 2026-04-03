@@ -27,8 +27,10 @@ This upgrades PyTorch to 2.10.0+cu128 (vLLM's dependency) which is fine — B200
 
 ### ✅ Works
 - vLLM **server mode** (`python3 -m vllm.entrypoints.openai.api_server`) — works fine
-- Must use `--enforce-eager` to skip torch.compile/CUDAGraph (sm_100 kernel compilation hangs or fails)
-- Server starts in ~15s for gpt2, ~5-10 min for Qwen3.5-35B-A3B
+- `--enforce-eager` is NOT needed with torch 2.10.0+cu128 — CUDA graphs compile fine on B200
+- Without enforce-eager: startup ~54s for gpt2 (compilation), then much faster inference
+- With enforce-eager: startup ~15s but 3-5x slower inference. Don't use it.
+- Server starts in ~5-10 min for Qwen3.5-35B-A3B (first-time CUDA graph compilation)
 
 ### ❌ Common Pitfalls
 1. **Multiprocessing spawn guard**: vLLM uses `spawn` multiprocessing. Any script using `from vllm import LLM` must have `if __name__ == "__main__":` guard, or the child process re-executes the entire script and crashes.
@@ -47,7 +49,6 @@ python3 -m vllm.entrypoints.openai.api_server \
   --gpu-memory-utilization 0.45 \
   --max-model-len 4096 \
   --enable-prefix-caching \
-  --enforce-eager \
   --no-enable-log-requests
 ```
 

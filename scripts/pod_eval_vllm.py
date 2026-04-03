@@ -235,7 +235,6 @@ def start_vllm_server(model_name, gpu_memory_utilization=0.90, max_model_len=409
         "--gpu-memory-utilization", str(gpu_memory_utilization),
         "--max-model-len", str(max_model_len),
         "--enable-prefix-caching",
-        "--enforce-eager",
         "--no-enable-log-requests",
     ]
 
