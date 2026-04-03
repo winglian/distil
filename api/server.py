@@ -245,8 +245,8 @@ for hotkey, entries in revealed.items():
     if not entries:
         continue
     try:
-        # Take the LAST (most recent) entry
-        block, data_str = entries[-1]
+        # Take the FIRST (original) entry — one commitment per hotkey, permanent
+        block, data_str = entries[0]
     except (ValueError, TypeError) as e:
         print(f"[commitments] bad entry for {hotkey}: {e}", file=sys.stderr)
         continue
