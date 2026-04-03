@@ -50,5 +50,7 @@
   "flag:coldkey:5GgggGG92R33EyQt8xQrbv3pVZLMdRj2ZQMwVkeLdyhdNs2f": "Associated with DQ'd hotkey 5Cd7EVZxN2cP... \u2014 arch: check_failed:404 Client Error. (Request ID: Root=1-69cf0008-09f6ff5416088b052a93b758;a764b780-222c-4a5f-8ebe-a74401c8d1fe)\n\nEntry Not Found for url: https://huggingface.co/dsaddsaf/Qwen3.5-4B/resolve/f20529e79b40018fb642babdf596379b1d9d18c7/config.json.",
   "flag:hf:dsaddsaf": "Associated with DQ'd hotkey 5Cd7EVZxN2cP... \u2014 arch: check_failed:404 Client Error. (Request ID: Root=1-69cf0008-09f6ff5416088b052a93b758;a764b780-222c-4a5f-8ebe-a74401c8d1fe)\n\nEntry Not Found for url: https://huggingface.co/dsaddsaf/Qwen3.5-4B/resolve/f20529e79b40018fb642babdf596379b1d9d18c7/config.json.",
   "5H6kXPM3WNiRnpQKwEMqVB2rdv6FbFDRgEu4h8Lea8ejEAKh:7854471": "copy: identical weights to UID 97 (dasLOL/distilled-qwen35-4b-base), committed later",
-  "7": "Model aidonuts/corpulent-quail-step1000-v0 is inaccessible (401). DQd."
+  "7": "Model aidonuts/corpulent-quail-step1000-v0 is inaccessible (401). DQd.",
+  "5CDsLvJkZbgHws65MfP6EfZtoRp1nsY4LesTnLMT6yxsoNba:7884961": "copy: identical weights to UID 40 (aidonuts/screaming-porcupine-s4000-a025-v9), committed later at block 7884961 vs 7884956",
+  "5GWLDWiuRR88XsMmmdRsfUHKXxA6dZpKfqjR92Z1cApT96oC:7885371": "FRAUD: student VRAM delta 24.5GB > 20.0GB"
 }

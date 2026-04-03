@@ -4,12 +4,26 @@ from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import time
 import json
+import math
 import traceback
 import os
 import threading
 import requests as req
 from collections import defaultdict
 import time as _rate_time
+
+
+def _sanitize_floats(obj):
+    """Replace inf/nan floats with None so JSON serialization doesn't break."""
+    if isinstance(obj, float):
+        if math.isinf(obj) or math.isnan(obj):
+            return None
+        return obj
+    elif isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_floats(v) for v in obj]
+    return obj
 
 
 # ── Rate Limiting ──────────────────────────────────────────────────────────────
@@ -424,7 +438,7 @@ def get_scores(fields: str = ""):
         requested = set(f.strip() for f in fields.split(","))
         result = {k: v for k, v in result.items() if k in requested}
     return JSONResponse(
-        content=result,
+        content=_sanitize_floats(result),
         headers={"Cache-Control": "public, max-age=10, stale-while-revalidate=30"},
     )
 
@@ -696,7 +710,8 @@ def get_h2h_latest():
     if os.path.exists(path):
         try:
             with open(path) as f:
-                return json.load(f)
+                data = json.load(f)
+            return _sanitize_floats(data)
         except Exception:
             pass
     return {"error": "No H2H data yet"}
@@ -719,7 +734,7 @@ def get_h2h_history(limit: int = 50, page: int = 1):
             end = start + limit
             page_data = data_rev[start:end]
             return JSONResponse(
-                content={"rounds": page_data, "total": total, "page": page, "limit": limit, "has_more": end < total},
+                content=_sanitize_floats({"rounds": page_data, "total": total, "page": page, "limit": limit, "has_more": end < total}),
                 headers={"Cache-Control": "public, max-age=10, stale-while-revalidate=30"},
             )
         except Exception:
