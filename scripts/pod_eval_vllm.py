@@ -484,6 +484,14 @@ def main():
             print(f"[eval] vLLM failed to start — falling back to HF", flush=True)
 
         if sequences_data:
+            # ── Free vLLM VRAM before loading HF teacher ──
+            if args.persistent_vllm:
+                print(f"[eval] Stopping vLLM to free VRAM for HF logit extraction...", flush=True)
+                stop_vllm_server()
+                import gc; gc.collect(); torch.cuda.empty_cache()
+                time.sleep(3)
+                print(f"[eval] VRAM after vLLM stop: {gpu_mem_str()}", flush=True)
+
             # ── HF forward pass for logits ──
             print(f"\n{'='*60}", flush=True)
             print(f"PHASE 1b: HF teacher logit extraction", flush=True)
