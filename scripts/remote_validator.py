@@ -770,6 +770,8 @@ def main(network, netuid, wallet_name, hotkey_name, wallet_path,
                     global_kl = scores.get(uid_str)
                     if global_kl is not None:  # has a score = not new
                         continue
+                    if uid_str in evaluated_uids:  # already evaluated, just missing score
+                        continue
                     p1_new.append((uid, info["model"]))
 
                 # ALL new submissions in every round — no waiting
