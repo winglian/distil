@@ -858,12 +858,13 @@ def main(network, netuid, wallet_name, hotkey_name, wallet_path,
                     challengers[king_uid] = king_entry
                 print(f"[VALIDATOR] Truncated to {len(challengers)} challengers", flush=True)
 
+            # Track challengers added BEFORE top-5 inclusion
+            # (these are the actual new/stale challengers that justify running an eval)
+            challengers_before_top5 = set(challengers.keys())
+
             # ── Always include top-5 contenders in every round ──
             # In maintenance mode, the top 4 contenders (from leaderboard) are always
-            # re-evaluated alongside any new challengers. This ensures:
-            # 1. Contenders can dethrone the king if they consistently beat it
-            # 2. New models are compared against the full competitive field
-            # 3. Cumulative dethronement has continuous data
+            # re-evaluated alongside any new challengers.
             TOP_N_ALWAYS_INCLUDE = 5  # king + 4 contenders
             top4_file_inc = state_path / "top4_leaderboard.json"
             if top4_file_inc.exists() and king_uid is not None:
@@ -881,7 +882,9 @@ def main(network, netuid, wallet_name, hotkey_name, wallet_path,
                 except Exception as e:
                     print(f"[VALIDATOR] Warning: failed to load top4 for contender inclusion: {e}", flush=True)
 
-            if not challengers:
+            # Only run eval if there are actual new challengers (not just top-5 re-runs)
+            has_new_challengers = len(challengers_before_top5) > 0
+            if not challengers or not has_new_challengers:
                 print(f"[VALIDATOR] No new challengers, king UID {king_uid} (KL={king_kl:.6f}) holds", flush=True)
                 # Still set weights periodically to keep tempo — use king directly
                 if king_uid is not None:
@@ -2005,7 +2008,7 @@ else:
                     for uid_str, score in scores.items():
                         if score <= 0 or score > MAX_KL_THRESHOLD:
                             continue
-                        if uid_str in disqualified:
+                        if int(uid_str) in disqualified:
                             continue
                         record = h2h_tracker.get(uid_str, {})
                         if record.get("king_uid") == king_uid and record.get("kl"):
@@ -2063,7 +2066,7 @@ else:
                     for uid_str, score in scores.items():
                         if score <= 0 or score > MAX_KL_THRESHOLD:
                             continue
-                        if uid_str in disqualified:
+                        if int(uid_str) in disqualified:
                             continue
                         valid_entries.append((uid_str, score))
                     valid_entries.sort(key=lambda x: x[1])  # best KL first
