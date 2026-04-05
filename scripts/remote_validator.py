@@ -1238,7 +1238,7 @@ def main(network, netuid, wallet_name, hotkey_name, wallet_path,
             if orphans:
                 for uid in orphans:
                     state.evaluated_uids.discard(uid)
-                state.save_evaluated_uids()
+                state.save_model_tracking()
                 logger.info(f"Cleaned {len(orphans)} orphaned UIDs from evaluated_uids")
 
             # ── Clear stale eval progress ──
