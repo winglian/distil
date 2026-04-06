@@ -1584,6 +1584,11 @@ async def openai_chat_completions(request: Request):
     if not messages:
         return JSONResponse(status_code=400, content={"error": {"message": "messages required"}})
 
+    # Default to non-thinking chat output for Open WebUI / normal chat UX.
+    # Callers can still override this explicitly.
+    body.setdefault("chat_template_kwargs", {})
+    body["chat_template_kwargs"].setdefault("enable_thinking", False)
+
     king_uid, king_model = _get_king_info()
     if king_uid is None:
         return JSONResponse(status_code=503, content={"error": {"message": "no king model available"}})
