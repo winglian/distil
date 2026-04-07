@@ -540,48 +540,16 @@ def select_challengers(valid_models, state: ValidatorState, king_uid, king_kl,
                 challengers[uid] = valid_models[uid]
             logger.info(f"🏆 FULL EVAL: {len(p1b)} scored models added (untested vs new king, KL<=0.12)")
 
-    # P3: Stale re-tests
-    if king_kl > 0 and king_kl < float("inf"):
-        stale_threshold = king_kl * 2.0
-        p3_candidates = []
-        for uid, info in valid_models.items():
-            if uid == king_uid or uid in challengers:
-                continue
-            if info["model"] in state.permanently_bad_models:
-                continue
-            uid_str = str(uid)
-            global_kl = state.scores.get(uid_str)
-            if global_kl is None or global_kl <= 0 or global_kl > stale_threshold:
-                continue
-            h2h_record = state.h2h_tested_against_king.get(uid_str, {})
-            if h2h_record.get("king_uid") != king_uid:
-                # Tested against OLD king — needs re-test against current king
-                p3_candidates.append((uid, global_kl, STALE_H2H_EPOCHS + 1))
-                continue
-            epochs_since = epoch_count - h2h_record.get("epoch", 0)
-            if epochs_since > STALE_H2H_EPOCHS:
-                p3_candidates.append((uid, global_kl, epochs_since))
-        if p3_candidates:
-            p3_candidates.sort(key=lambda x: x[1])
-            uid, kl, age = p3_candidates[0]
-            challengers[uid] = valid_models[uid]
-            logger.info(f"🎯 SMART CHALLENGER: UID {uid} — P3: stale re-test ({age} epochs, KL={kl:.6f})")
+    # P3: Stale re-tests — DISABLED
+    # Models are evaluated once. No re-evals against new kings.
+    # The king must be beaten by NEW challengers, not by re-testing old ones.
 
     return challengers
 
 
 def _add_top5_contenders(challengers, valid_models, state: ValidatorState, king_uid):
-    """Always include top-5 contenders from leaderboard in maintenance mode."""
-    if state.top4_leaderboard.get("phase") != "maintenance" or king_uid is None:
-        return
-    contenders_added = 0
-    for contender in (state.top4_leaderboard.get("contenders") or [])[:TOP_N_ALWAYS_INCLUDE - 1]:
-        c_uid = contender.get("uid")
-        if c_uid is not None and c_uid != king_uid and c_uid in valid_models and c_uid not in challengers:
-            challengers[c_uid] = valid_models[c_uid]
-            contenders_added += 1
-    if contenders_added:
-        logger.info(f"🏆 Added {contenders_added} top-{TOP_N_ALWAYS_INCLUDE} contender(s) to eval")
+    """DISABLED — models are evaluated once, not re-tested."""
+    return
 
 
 def _cap_challengers(challengers, state: ValidatorState, king_uid):
